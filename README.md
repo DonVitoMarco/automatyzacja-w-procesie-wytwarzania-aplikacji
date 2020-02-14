@@ -1,4 +1,4 @@
-# AWPWO-Project
+# Automatyzacja W Procesie Wytwarzania Aplikacji
 
 #### Swagger docs
 ```
