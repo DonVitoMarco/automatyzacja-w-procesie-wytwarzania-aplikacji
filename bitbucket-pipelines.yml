@@ -1,0 +1,51 @@
+pipelines:
+  default:
+    - step:
+        name: Build
+        script:
+          - ./gradlew bootJar
+    - step:
+        name: Test
+        script:
+          - ./gradlew test
+  pull-requests:
+    '**':
+      - step:
+          name: Build
+          script:
+            - ./gradlew bootJar
+      - step:
+          name: Test
+          script:
+            - ./gradlew test
+      - step:
+          name: Coverage
+          script:
+            - ./gradlew jacocoTestCoverageVerification
+      - step:
+          name: Checkstyle
+          script:
+            - ./gradlew checkstyleMain
+      - step:
+          name: PMD
+          script:
+            - ./gradlew pmdMain
+  branches:
+    production:
+      - step:
+          name: Build and deploy (production)
+          deployment: production
+          script:
+            - curl "https://s3.amazonaws.com/aws-cli/awscli-bundle.zip" -o "awscli-bundle.zip"
+            - sudo apt-get install jq
+            - unzip awscli-bundle.zip
+            - ./awscli-bundle/install -b ~/bin/aws
+            - export PATH=~/bin:$PATH
+            - export IMAGE_NAME=453858552648.dkr.ecr.eu-central-1.amazonaws.com/awpwo-backend:$BITBUCKET_COMMIT
+            - eval $(aws ecr get-login --no-include-email --region eu-central-1)
+            - docker build -q=true -t $IMAGE_NAME .
+            - docker push $IMAGE_NAME
+            - export TASK_VERSION=$(aws ecs register-task-definition --family awpwo-app-deploy --container-definitions "[{\"name\":\"awpwo-app-container\",\"image\":\"$IMAGE_NAME\",\"cpu\":256,\"portMappings\":[{\"hostPort\":8080,\"protocol\":\"tcp\",\"containerPort\":8080}],\"environment\":[{\"name\":\"SPRING_PROFILES_ACTIVE\", \"value\":\"prod\"}], \"logConfiguration\":{\"logDriver\":\"awslogs\",\"options\":{\"awslogs-group\":\"awpwo-app-logs\",\"awslogs-region\":\"eu-central-1\",\"awslogs-stream-prefix\":\"awpwo-app\"}},\"memory\":768,\"essential\":true}]" | jq --raw-output '.taskDefinition.revision')
+            - aws ecs update-service --cluster awpwo-app --service awpwo-app-service --task-definition awpwo-app-deploy:$TASK_VERSION
+          services:
+            - docker
